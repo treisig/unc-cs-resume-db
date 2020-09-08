@@ -8,6 +8,8 @@ import {
   ButtonGroup,
   ToggleButton,
 } from "react-bootstrap";
+import SettingsIcon from "@material-ui/icons/Settings";
+
 import { withFirebase } from "../Firebase";
 import RecruiterListComponent from "./RecruiterListComponent";
 import StudentListComponent from "./StudentListComponent";
@@ -25,65 +27,30 @@ class AdminView extends Component {
       students: [],
       events: [],
       value: "Recruiters",
+      prevValue: "Recruiters",
     };
   }
 
   componentDidMount() {
-    // this.handleQueryAll();
     this.handleQueryAllRecruiters();
-    this.handleQueryAllStudents();
-    this.handleQueryAllEvents();
   }
-
-  handleQueryAll = async (e) => {
-    const recruiterData = await this.Firebase.getAllRecruiters().catch((err) =>
-      console.log(err)
-    );
-    this.setState({ recruiters: recruiterData });
-
-    const studentData = await this.Firebase.getAllStudents().catch((err) =>
-      console.log(err)
-    );
-    this.setState({ students: studentData });
-
-    const eventData = await this.Firebase.getAllEvents().catch((err) =>
-      console.log(err)
-    );
-    this.setState({ events: eventData });
-  };
 
   handleQueryAllRecruiters = async (e) => {
     const data = await this.Firebase.getAllRecruiters().catch((err) =>
       console.log(err)
     );
     this.setState({ recruiters: data });
-    // console.log(this.state.recruiters);
   };
-
-  handleQueryAllStudents = async (e) => {
-    const data = await this.Firebase.getAllStudents().catch((err) =>
-      console.log(err)
-    );
-    this.setState({ students: data });
-    // console.log(this.state.students);
-  };
-
-  handleQueryAllEvents = async (e) => {
-    const data = await this.Firebase.getAllEvents().catch((err) =>
-      console.log(err)
-    );
-    this.setState({ events: data });
-    // console.log(this.state.students);
-  };
-
   render() {
     const parentState = (e) => {
       this.setState({ value: e });
-      // console.log(this.state.value);
     };
 
+    const getParentState = () => {
+      return this.state.value;
+    };
     function ToggleButtonGroup() {
-      const [radioValue, setRadioValue] = useState("");
+      const [radioValue, setRadioValue] = useState(getParentState());
       const radios = [
         { name: "Recruiters", value: "Recruiters" },
         { name: "Students", value: "Students" },
@@ -99,39 +66,45 @@ class AdminView extends Component {
       ];
 
       return (
-        <ButtonGroup toggle>
-          {radios.map((radio, idx) => (
-            <ToggleButton
-              key={idx}
-              type="radio"
-              variant="primary"
-              name="radio"
-              value={radio.value}
-              checked={radioValue === radio.value}
-              onChange={(e) => {
-                setRadioValue(e.currentTarget.value);
-                parentState(e.currentTarget.value);
-              }}
-            >
-              {radio.name}
-            </ToggleButton>
-          ))}
-        </ButtonGroup>
+        <div>
+          <ButtonGroup toggle>
+            {radios.map((radio, idx) => (
+              <ToggleButton
+                key={idx}
+                type="radio"
+                variant="primary"
+                name="radio"
+                value={radio.value}
+                checked={radioValue === radio.value}
+                onChange={(e) => {
+                  setRadioValue(e.currentTarget.value);
+                  parentState(e.currentTarget.value);
+                }}
+              >
+                {radio.name}
+              </ToggleButton>
+            ))}
+          </ButtonGroup>
+          <Link to="/adminAccountSettings">
+            <SettingsIcon
+              style={{ color: "white" }}
+              className="settingsIcon"
+              fontSize="large"
+            />
+          </Link>
+          {/* <Button className="admin-setting"> Setting </Button> */}
+        </div>
       );
     }
 
     return (
-      <div className="master-container">
+      <div className="admin-master-container">
         <ToggleButtonGroup />
         <Link to="/recruiter"></Link>
-        {/* <Button onClick={this.handleQuery} variant="info">
-          Recruiter View
-        </Button> */}
-        {/* {console.log("state " + this.state.value)} */}
-        <div className="full-panel">
+        <div className="admin-full-panel">
           <Container fluid="true">
             <Row>
-              <Col className="right-panel">
+              <Col className="admin-panel">
                 {this.RenderCorrectComponents()}
               </Col>
             </Row>
@@ -144,7 +117,7 @@ class AdminView extends Component {
   RenderCorrectComponents = () => {
     switch (this.state.value) {
       case "Recruiters":
-        // console.log("in recruiters switch");
+        // return <RecruitersListComponent title={this.state.value} />;
         return (
           <RecruiterListComponent
             title={this.state.value}
@@ -170,11 +143,9 @@ class AdminView extends Component {
           />
         );
       case "Basic Information Modification":
-        // return console.log("Basic Info Component");
         return <BasicInformationModification title={this.state.value} />;
       case "Skills & Experience Modification":
         return <SkillsAndExperienceModification title={this.state.value} />;
-      // return console.log("Skills & Experience Modification");
       default:
         return;
     }

@@ -5,12 +5,15 @@ import FilterSearchBar from "./FilterSearchBar";
 import FilterItem from "./FilterItem";
 
 function FilterDropDown(props) {
-  const [collapsed, setColapsed] = useState(true);
+  //This component holds the logic responsible for deciding whether or not a filter will be expanded 
+  // Also responsible for displaying items which are currently being searched for in the filter component
 
+  const [collapsed, setColapsed] = useState(true);
+  const [filterSearch, setFilterSearch] = useState("");
   var inside;
 
-  if (props.hasSearch === "true") {
-    inside = <FilterSearchBar height="40px" title={props.title} />;
+  if (props.hasSearch === true) {
+    inside = <FilterSearchBar height="40px" title={props.title} setFilterSearch={(string) => setFilterSearch(string)} />;
   }
 
   if (collapsed) {
@@ -45,9 +48,7 @@ function FilterDropDown(props) {
           {inside}
           {props.inside
             .filter((item) => {
-              // console.log(item.includes(props.filterSearch))
-              // console.log(props.filterSearch)
-              return item.includes(props.filterSearch);
+              return item.toLowerCase().includes(filterSearch.toLowerCase());
             })
             .map((item) => {
               return (

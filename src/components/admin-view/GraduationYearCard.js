@@ -14,8 +14,7 @@ class GraduationYearCard extends Component {
     super(props);
     this.Firebase = props.Firebase;
     this.state = {
-      eventInput: "",
-      reqSchoolName: "",
+      gradYearInput: "",
       collection: "",
       doc: "",
       field: "",
@@ -27,11 +26,18 @@ class GraduationYearCard extends Component {
     this.handleQueryAllData();
   }
 
+  getListArrays = async (collection, doc) => {
+    const data = await this.Firebase.db.collection(collection).doc(doc).get();
+    return data.data();
+  };
   handleQueryAllData = async (e) => {
-    const data = await this.Firebase.getAllGraduationYear();
-    this.setState({ gradyr: data[0].gradYearList }).catch((err) =>
-      console.log(err)
+    const gradYearHolder = await this.getListArrays(
+      "Graduation Year",
+      "gradYears"
     );
+    this.setState({
+      gradyr: gradYearHolder.gradYearList,
+    });
   };
 
   render() {
@@ -43,7 +49,7 @@ class GraduationYearCard extends Component {
             eventKey="gradyr"
             style={{ backgroundColor: "#E5E5E5", color: "Black" }}
           >
-            <h3 className="card-name">Graduation Year</h3>
+            <h3 className="admin-card-name">Graduation Year</h3>
           </Accordion.Toggle>
           <Accordion.Collapse eventKey="gradyr">
             <div style={{ color: "Black" }}>
@@ -51,14 +57,12 @@ class GraduationYearCard extends Component {
                 <Form>
                   <Form.Group controlId="school modification">
                     <Form.Control
+                      className="admin-input-box"
                       as="select"
                       onChange={(e) =>
-                        this.updateStates(
-                          e.currentTarget.value,
-                          "Graduation Year",
-                          "gradYears",
-                          "gradYearList"
-                        )
+                        this.setState({
+                          gradYearInput: e.currentTarget.value,
+                        })
                       }
                     >
                       <option>Select Graduation Year</option>
@@ -66,35 +70,37 @@ class GraduationYearCard extends Component {
                         <option key={eachOption}>{eachOption}</option>
                       ))}
                     </Form.Control>
-                    <FormControl
-                      placeholder="Graduation year to Add/Remove"
-                      value={this.state.eventInput}
-                      aria-label="Graduation year to Add/Remove"
-                      aria-describedby="basic-addon2"
-                      // key={data.UID}
-                      key="gradyr"
-                      onChange={(e) =>
-                        this.updateStates(
-                          e.currentTarget.value,
-                          "Graduation Year",
-                          "gradYears",
-                          "gradYearList"
-                        )
-                      }
-                    />
+                    <InputGroup>
+                      <FormControl
+                        className="admin-input-box"
+                        placeholder="Graduation year to Add/Remove"
+                        value={this.state.gradYearInput}
+                        aria-label="Graduation year to Add/Remove"
+                        aria-describedby="basic-addon2"
+                        // key={data.UID}
+                        key="gradyr"
+                        onChange={(e) =>
+                          this.setState({
+                            gradYearInput: e.currentTarget.value,
+                          })
+                        }
+                      />
+                      <InputGroup.Append>
+                        <Button
+                          variant="outline-success"
+                          onClick={this.handleAdd}
+                        >
+                          Add
+                        </Button>
+                        <Button
+                          variant="outline-danger"
+                          onClick={this.handleRemove}
+                        >
+                          Remove
+                        </Button>
+                      </InputGroup.Append>
+                    </InputGroup>
                   </Form.Group>
-                  <InputGroup.Append>
-                    <Button variant="outline-success" onClick={this.handleAdd}>
-                      Add
-                    </Button>
-                    <Button
-                      variant="outline-danger"
-                      // onClick={console.log(this.state.eventInput)}
-                      onClick={this.handleRemove}
-                    >
-                      Remove
-                    </Button>
-                  </InputGroup.Append>
                 </Form>
               </Card.Body>
             </div>
@@ -104,22 +110,20 @@ class GraduationYearCard extends Component {
     );
   }
 
-  updateStates = (input, coll, docName, field) => {
-    this.setState({ eventInput: input });
-    this.setState({ collection: coll });
-    this.setState({ doc: docName });
-    this.setState({ field: field });
-  };
-
   handleAdd = async (event) => {
     event.preventDefault();
+    //check if same item exist in the array before adding
+    const index = this.state.gradyr.indexOf(this.state.gradYearInput);
+    if (index > -1) {
+      alert("exists at " + index);
+      return;
+    }
+    this.state.gradyr.push(this.state.gradYearInput);
     await this.Firebase.db
-      .collection(this.state.collection)
-      .doc(this.state.doc)
+      .collection("Graduation Year")
+      .doc("gradYears")
       .update({
-        [this.state.field]: this.Firebase.firestore.FieldValue.arrayUnion(
-          this.state.eventInput
-        ),
+        ["gradYearList"]: this.state.gradyr,
       })
       .catch((err) => console.log(err));
     this.handleUpdate();
@@ -128,15 +132,19 @@ class GraduationYearCard extends Component {
   //Remove resume access
   handleRemove = async (event) => {
     event.preventDefault();
+    const index = this.state.gradyr.indexOf(this.state.gradYearInput);
+    if (index > -1) {
+      this.state.gradyr.splice(index, 1);
+    }
+
     await this.Firebase.db
-      .collection(this.state.collection)
-      .doc(this.state.doc)
+      .collection("Graduation Year")
+      .doc("gradYears")
       .update({
-        [this.state.field]: this.Firebase.firestore.FieldValue.arrayRemove(
-          this.state.eventInput
-        ),
+        ["gradYearList"]: this.state.gradyr,
       })
       .catch((err) => console.log(err));
+
     this.handleUpdate();
   };
 

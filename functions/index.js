@@ -2,6 +2,7 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const app = require("express")();
 const cors = require("cors");
+const email_reg = require("email-regex");
 
 /* Manually create this file, using json data downloaded at 
 firebase console-> project settings-> service accounts-> generate private key.*/
@@ -23,29 +24,6 @@ app.get("/", (req, res) => {
   res.send("You've reached the base API endpoint");
 });
 
-// // Send GET request to /api/users to get array of all users
-// app.get("/users", async (req, res) => {
-//   const data = await firestore.collection("students").get()
-//   .catch(err => {
-//     res.status(400).send(err);
-//   });
-//   const docs = data.docs.map((doc) => doc.data());
-//   res.send(docs);
-// });
-
-// // Need to add parameters for this path: userID and user
-// app.get("/getProfileInfo", async (req, res) => {
-//   if (req.body.currentUser !== null) {
-//     const data = await firestore.collection
-//       .doc("students")
-//       .where("UID", "==", auth().currentUser.uid)
-//       .get()
-//       .catch(err => res.status(500).send(err));
-//     const docs = data.docs.map((doc) => doc.data());
-//     res.send(docs);
-//   }
-// });
-
 // Gets auth claims for user acct
 // request body = {"email": "example@email.com"}
 app.get("/getUserClaims", async (req, res) => {
@@ -64,7 +42,14 @@ app.get("/getUserClaims", async (req, res) => {
 app.post("/newStudent", async (req, res) => {
   if (!req.body.email)
     res.status(400).send("Must include email in request body");
-  // const unc_email_re = /^\S+@(\S*\.|)unc.edu$/;
+
+  if (
+    !(
+      email_reg({ exact: true }).test(req.body.email) &&
+      /^\S+@(\S*\.|)unc.edu$/.test(req.body.email)
+    )
+  )
+    res.status(400).send("Must be a valid UNC email");
 
   const user = await auth()
     .getUserByEmail(req.body.email)
@@ -96,10 +81,10 @@ app.post("/newStudent", async (req, res) => {
     ["Secondary Major"]: "",
     ["Seeking"]: "",
     ["UID"]: user.uid,
-    ["Profile Image"]:
-      "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973461_960_720.png",
+    ["Profile Image"]: "",
     ["Resume PDF"]: "",
     ["Hide Resume"]: true,
+    ["Intro"]: true,
   };
 
   await firestore
@@ -116,40 +101,48 @@ app.post("/newRecruiter", async (req, res) => {
   if (!req.body.email || !req.body.name) {
     res.status(400).send("Must include an email and name in request");
   }
-  const user = await auth()
-    .getUserByEmail(req.body.email)
-    .catch((err) => {
-      res.status(404).send(err);
-    });
 
-  await auth()
-    .setCustomUserClaims(user.uid, {
-      student: false,
-      recruiter: true,
-      admin: false,
-    })
-    .catch((err) => {
-      res.status(400).send(err);
-    });
+  const adminEmail = req.body.currentAdminEmail;
+  const adminUser = (await auth().getUserByEmail(adminEmail)).customClaims;
 
-  const recruiterData = {
-    ["Name"]: req.body.name,
-    ["Email"]: req.body.email,
-    ["UID"]: user.uid,
-    ["Lists"]: {
-      ["Favorites"]: [],
-    },
-    ["Resume Access"]: [],
-  };
+  if (adminUser.admin) {
+    const user = await auth()
+      .getUserByEmail(req.body.email)
+      .catch((err) => {
+        res.status(404).send(err);
+      });
 
-  await firestore
-    .collection("recruiters")
-    .doc(user.uid)
-    .set(recruiterData)
-    .catch((err) => {
-      res.status(400).send(err);
-    });
-  res.status(201).send();
+    await auth()
+      .setCustomUserClaims(user.uid, {
+        student: false,
+        recruiter: true,
+        admin: false,
+      })
+      .catch((err) => {
+        res.status(400).send(err);
+      });
+
+    const recruiterData = {
+      ["Name"]: req.body.name,
+      ["Email"]: req.body.email,
+      ["UID"]: user.uid,
+      ["Lists"]: {
+        ["Favorites"]: [],
+      },
+      ["Resume Access"]: [],
+    };
+
+    await firestore
+      .collection("recruiters")
+      .doc(user.uid)
+      .set(recruiterData)
+      .catch((err) => {
+        res.status(400).send(err);
+      });
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
 });
 
 // Add admin auth claims to user acct
@@ -158,21 +151,28 @@ app.post("/newAdmin", async (req, res) => {
   if (!req.body.email)
     res.status(400).send("Must include email in request body");
 
-  const user = await auth()
-    .getUserByEmail(req.body.email)
-    .catch((err) => {
-      res.status(404).send(err);
-    });
+  const adminEmail = req.body.currentAdminEmail;
+  const adminUser = (await auth().getUserByEmail(adminEmail)).customClaims;
 
-  await auth()
-    .setCustomUserClaims(user.uid, {
-      student: true,
-      recruiter: true,
-      admin: true,
-    })
-    .catch((err) => {
-      res.status(400).send(err);
-    });
+  if (adminUser.admin) {
+    const user = await auth()
+      .getUserByEmail(req.body.email)
+      .catch((err) => {
+        res.status(404).send(err);
+      });
+
+    await auth()
+      .setCustomUserClaims(user.uid, {
+        student: true,
+        recruiter: true,
+        admin: true,
+      })
+      .catch((err) => {
+        res.status(400).send(err);
+      });
+  } else {
+    res.status(401).send();
+  }
 });
 
 // adds requested school to request list
@@ -180,68 +180,22 @@ app.post("/requestSchool", async (req, res) => {
   if (!req.body.school)
     res.status(400).send("Must include school in request body");
 
-  const schoolValue = req.body.school;
-  await firestore
-    .collection("Schools")
-    .doc("RequestedSchools")
-    .update({
-      schoolsList: admin.firestore.FieldValue.arrayUnion(schoolValue),
-    })
-    .catch((err) => res.status(500).send(err));
-  res.status(201).send();
-});
+  const email = req.body.currentStudentEmail;
+  const claims = (await auth().getUserByEmail(email)).customClaims;
 
-app.post("/query", async (req, res) => {
-  let query = firestore.collection("students");
-
-  const filters = req.body.filtersForQuery;
-
-  // This is how the request should be filters = [
-  // {
-  //   filters: [
-  //     {
-  //       "name": "Graduation Year",
-  //       "value": "2020",
-  //     },
-  //     {
-  //       "name": "Programming Languages.Python",
-  //       "value": true,
-  //     },
-  //     {
-  //       "name": "Database Systems.Oracle",
-  //       "value": true,
-  //     },
-  //   ],
-  // };
-  let addFilter = (newQuery, filterName, filterValue) => {
-    query = newQuery.where(filterName, "==", filterValue);
-  };
-  filters.forEach((filter) => {
-    addFilter(query, filter.name, filter.value);
-  });
-  const data = await query.get().catch((err) => res.status(500).send(err));
-  const docs = data.docs.map((doc) => doc.data());
-  res.send(docs);
-});
-
-app.put("/updateCheckbox", async (req, res) => {
-  const array = req.body.arrayList;
-
-  array.forEach(async (eachUpdate) => {
-    const valuePlaceHolder = req.body.valueToSend;
-    const currentState = eachUpdate;
-    const currentObjString = `${valuePlaceHolder}.${currentState}`;
-    const type = req.body.typeToSend;
-
+  if (claims.student || claims.admin) {
+    const schoolValue = req.body.school;
     await firestore
-      .collection("students")
-      .doc(req.body.uid)
+      .collection("Schools")
+      .doc("RequestedSchools")
       .update({
-        [currentObjString]: type,
+        schoolsList: admin.firestore.FieldValue.arrayUnion(schoolValue),
       })
       .catch((err) => res.status(500).send(err));
-  });
-  res.status(201).send();
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
 });
 
 app.post("/queryV3", async (req, res) => {
@@ -249,349 +203,908 @@ app.post("/queryV3", async (req, res) => {
   // should be true if needs all cards
   const isEmpty = req.body.empty;
 
-  if (isEmpty) {
-    const data = await firestore
+  let prevQueries = req.body.currentQueries;
+
+  const email = req.body.currentRecruiterEmail;
+  const claims = (await auth().getUserByEmail(email)).customClaims;
+  //.catch((err) => res.status(404).send(err)).customClaims;
+
+  if (claims.recruiter || claims.admin) {
+    const startingQuery = firestore
       .collection("students")
-      .get()
-      .catch((err) => {
-        res.status(400).send(err);
+      .where("Hide Resume", "==", false);
+
+    // Could the starting query just be all of the events
+    // Events OR UNC ==> cant do that :/
+
+    // Array of filters for each type
+    // Array of students
+    // Possibly store the entire student result on the client side
+    // so we dont have to keep reading the database.
+    // Or maybe store it in the database, then pull from db,
+    // then OR and And in endpoint, checking which filters are
+    // on or off
+
+    // Take in a resume access array
+    // OR all UNC students and all resume access people
+    const requiredResumeAccessArrayFinalOR = req.body.resumeAccess;
+
+    // Querying function
+    const singleQueryFunction = async (arrayName) => {
+      let storingArray = [];
+
+      let promiseArray = [];
+      arrayName.forEach((eachQueryOBJ) => {
+        const currentQuery = startingQuery.where(
+          eachQueryOBJ.name,
+          "==",
+          eachQueryOBJ.value
+        );
+        const data = currentQuery.get();
+        promiseArray.push(data);
       });
-    const docs = data.docs.map((doc) => doc.data());
-    res.send(docs);
-    return;
-  }
 
-  const startingQuery = firestore.collection("students");
+      storingArray = await Promise.all(promiseArray);
 
-  let orHolder = [];
+      let finalQueryArray = [];
+      storingArray.forEach((data) => {
+        const docs = data.docs.map((doc) => doc.data());
+        finalQueryArray.push(docs);
+      });
+      return finalQueryArray;
+    };
 
-  let progLangOR = [];
-  let proLangFinalOR = [];
+    // ORing function
+    const orFilter = (arrA, arrB) => {
+      let tempArray = [];
 
-  let frameOR = [];
-  let frameFinalOR = [];
+      let setForLookups = new Set();
 
-  let dbOR = [];
-  let dbFinalOR = [];
-
-  let schoolOR = [];
-  let schoolFinalOR = [];
-
-  let opOR = [];
-  let opFinalOR = [];
-
-  let eventsOR = [];
-  let eventsFinalOR = [];
-
-  let gradOR = [];
-  let gradFinalOR = [];
-
-  let primMajorOR = [];
-  let primMajorFinalOR = [];
-
-  let secMajorOR = [];
-  let secMajorFinalOR = [];
-
-  let minorsOR = [];
-  let minorsFinalOR = [];
-
-  let andFinal = [];
-  // FiltersOBJ: {
-  // Programming Languages: [Programming Languages.Java, Programming Languages.Python],
-  // Frameworks And Tools: [],
-  // Events: [],
-  // etc...
-  // }
-  // or each item in each section
-  // then and the results
-
-  // ORing function
-  const orFilter = (arrA, arrB) => {
-    // const orPart = arrA.filter((objA) =>
-    //   arrB.filter((objB) => objA.UID !== objB.UID)
-    // );
-
-    let tempArray = [];
-
-    let setForLookups = new Set();
-
-    // Student UID list for lookups
-    for (const eachOBJ of arrA) {
-      setForLookups.add(eachOBJ.UID);
-      tempArray.push(eachOBJ);
-    }
-
-    for (const eachOBJ of arrB) {
-      if (!setForLookups.has(eachOBJ.UID)) {
+      // Student UID list for lookups
+      for (const eachOBJ of arrA) {
+        setForLookups.add(eachOBJ.UID);
         tempArray.push(eachOBJ);
       }
+
+      for (const eachOBJ of arrB) {
+        if (!setForLookups.has(eachOBJ.UID)) {
+          tempArray.push(eachOBJ);
+        }
+      }
+
+      return tempArray;
+    };
+
+    const intersect = (arrA, arrB) => {
+      return arrA.filter((objA) => arrB.some((objB) => objA.UID === objB.UID));
+    };
+
+    if (isEmpty) {
+      prevQueries["Programming Languages"]["prevFilters"] = [];
+      prevQueries["Programming Languages"]["prevQuery"] = [];
+      prevQueries["Frameworks and Tools"]["prevFilters"] = [];
+      prevQueries["Frameworks and Tools"]["prevQuery"] = [];
+      prevQueries["Database Systems"]["prevFilters"] = [];
+      prevQueries["Database Systems"]["prevQuery"] = [];
+      prevQueries["School"]["prevFilters"] = [];
+      prevQueries["School"]["prevQuery"] = [];
+      prevQueries["Operating Systems"]["prevFilters"] = [];
+      prevQueries["Operating Systems"]["prevQuery"] = [];
+      prevQueries["Events"]["prevFilters"] = [];
+      prevQueries["Events"]["prevQuery"] = [];
+      prevQueries["Graduation Year"]["prevFilters"] = [];
+      prevQueries["Graduation Year"]["prevQuery"] = [];
+      prevQueries["Primary Major"]["prevFilters"] = [];
+      prevQueries["Primary Major"]["prevQuery"] = [];
+      prevQueries["Secondary Major"]["prevFilters"] = [];
+      prevQueries["Secondary Major"]["prevQuery"] = [];
+      prevQueries["Minors"]["prevFilters"] = [];
+      prevQueries["Minors"]["prevQuery"] = [];
+      res.send({
+        students: requiredResumeAccessArrayFinalOR,
+        queries: { "Active Queries": prevQueries },
+      });
+      return;
     }
 
-    // for (const eachOBJ of arrB) {
-    //   for (const studentUID of eachOBJ) {
+    let orHolder = [];
 
-    //   }
+    let progLangOR = [];
+    let proLangFinalOR = [];
+
+    let frameOR = [];
+    let frameFinalOR = [];
+
+    let dbOR = [];
+    let dbFinalOR = [];
+
+    let schoolOR = [];
+    let schoolFinalOR = [];
+
+    let opOR = [];
+    let opFinalOR = [];
+
+    let eventsOR = [];
+    let eventsFinalOR = [];
+
+    let gradOR = [];
+    let gradFinalOR = [];
+
+    let primMajorOR = [];
+    let primMajorFinalOR = [];
+
+    let secMajorOR = [];
+    let secMajorFinalOR = [];
+
+    let minorsOR = [];
+    let minorsFinalOR = [];
+
+    let andFinal = [];
+    // FiltersOBJ: {
+    // Programming Languages: [Programming Languages.Java, Programming Languages.Python],
+    // Frameworks And Tools: [],
+    // Events: [],
+    // etc...
     // }
+    // or each item in each section
+    // then and the results
 
-    // const andPart = arrA.filter((objA) =>
-    //   arrB.some((objB) => objA.UID === objB.UID)
-    // );
+    if (filters["Programming Languages"].length !== 0) {
+      if (
+        prevQueries["Programming Languages"]["prevFilters"].length ===
+        filters["Programming Languages"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["Programming Languages"]["prevQuery"]);
+      } else if (
+        prevQueries["Programming Languages"]["prevFilters"].length <
+        filters["Programming Languages"].length
+      ) {
+        // this means that you added a query
 
-    // const tempArray = [...new Set([...orPart, ...andPart])];
+        progLangOR = await singleQueryFunction(
+          req.body.newFilter["Programming Languages"]
+        );
 
-    return tempArray;
-  };
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["Programming Languages"]["prevQuery"]
+        );
 
-  // Querying function
-  const singleQueryFunction = async (arrayName) => {
-    let storingArray = [];
+        orHolder.push(newQueryObj);
 
-    // for (const eachQueryOBJ of arrayName) {
-    //   const currentQuery = startingQuery.where(
-    //     eachQueryOBJ.name,
-    //     "==",
-    //     eachQueryOBJ.value
-    //   );
-    //   const data = await currentQuery.get();
-    //   const docs = data.docs.map((doc) => doc.data());
-    //   storingArray.push(docs);
-    // }
+        prevQueries["Programming Languages"]["prevQuery"] = newQueryObj;
+        prevQueries["Programming Languages"]["prevFilters"].push(
+          req.body.newFilter["Programming Languages"][0]
+        );
+      } else {
+        // a filter has been removed
+        // Need to remake the rest of the query
+        const initialProgramming = filters["Programming Languages"];
+        // Now OR the arrays inside proLangOR
+        progLangOR = await singleQueryFunction(initialProgramming);
+        proLangFinalOR = progLangOR[0];
+        progLangOR.forEach((eachArray) => {
+          proLangFinalOR = orFilter(eachArray, proLangFinalOR);
+        });
 
-    let promiseArray = [];
-    arrayName.forEach((eachQueryOBJ) => {
-      const currentQuery = startingQuery.where(
-        eachQueryOBJ.name,
-        "==",
-        eachQueryOBJ.value
-      );
-      const data = currentQuery.get();
-      //const docs = data.docs.map((doc) => doc.data());
-      promiseArray.push(data);
+        prevQueries["Programming Languages"]["prevFilters"] =
+          filters["Programming Languages"];
+        prevQueries["Programming Languages"]["prevQuery"] = proLangFinalOR;
+
+        orHolder.push(proLangFinalOR);
+      }
+    } else {
+      prevQueries["Programming Languages"]["prevFilters"] = [];
+      prevQueries["Programming Languages"]["prevQuery"] = [];
+    }
+
+    if (filters["Frameworks and Tools"].length !== 0) {
+      if (
+        prevQueries["Frameworks and Tools"]["prevFilters"].length ===
+        filters["Frameworks and Tools"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["Frameworks and Tools"]["prevQuery"]);
+      } else if (
+        prevQueries["Frameworks and Tools"]["prevFilters"].length <
+        filters["Frameworks and Tools"].length
+      ) {
+        // this means that you added a query
+
+        progLangOR = await singleQueryFunction(
+          req.body.newFilter["Frameworks and Tools"]
+        );
+
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["Frameworks and Tools"]["prevQuery"]
+        );
+
+        orHolder.push(newQueryObj);
+
+        prevQueries["Frameworks and Tools"]["prevQuery"] = newQueryObj;
+        prevQueries["Frameworks and Tools"]["prevFilters"].push(
+          req.body.newFilter["Frameworks and Tools"][0]
+        );
+      } else {
+        const initialFrames = filters["Frameworks and Tools"];
+        // Now OR the arrays inside proLangOR
+        frameOR = await singleQueryFunction(initialFrames);
+        frameFinalOR = frameOR[0];
+        frameOR.forEach((eachArray) => {
+          frameFinalOR = orFilter(eachArray, frameFinalOR);
+        });
+
+        prevQueries["Frameworks and Tools"]["prevFilters"] =
+          filters["Frameworks and Tools"];
+        prevQueries["Frameworks and Tools"]["prevQuery"] = frameFinalOR;
+
+        orHolder.push(frameFinalOR);
+      }
+    } else {
+      prevQueries["Frameworks and Tools"]["prevFilters"] = [];
+      prevQueries["Frameworks and Tools"]["prevQuery"] = [];
+    }
+
+    if (filters["Database Systems"].length !== 0) {
+      if (
+        prevQueries["Database Systems"]["prevFilters"].length ===
+        filters["Database Systems"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["Database Systems"]["prevQuery"]);
+      } else if (
+        prevQueries["Database Systems"]["prevFilters"].length <
+        filters["Database Systems"].length
+      ) {
+        // this means that you added a query
+
+        progLangOR = await singleQueryFunction(
+          req.body.newFilter["Database Systems"]
+        );
+
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["Database Systems"]["prevQuery"]
+        );
+
+        orHolder.push(newQueryObj);
+
+        prevQueries["Database Systems"]["prevQuery"] = newQueryObj;
+        prevQueries["Database Systems"]["prevFilters"].push(
+          req.body.newFilter["Database Systems"][0]
+        );
+      } else {
+        const initialDB = filters["Database Systems"];
+        // Now OR the arrays inside proLangOR
+        dbOR = await singleQueryFunction(initialDB);
+        dbFinalOR = dbOR[0];
+        dbOR.forEach((eachArray) => {
+          dbFinalOR = orFilter(eachArray, dbFinalOR);
+        });
+
+        prevQueries["Database Systems"]["prevFilters"] =
+          filters["Database Systems"];
+        prevQueries["Database Systems"]["prevQuery"] = dbFinalOR;
+
+        orHolder.push(dbFinalOR);
+      }
+    } else {
+      prevQueries["Database Systems"]["prevFilters"] = [];
+      prevQueries["Database Systems"]["prevQuery"] = [];
+    }
+
+    if (filters["School"].length !== 0) {
+      if (
+        prevQueries["School"]["prevFilters"].length === filters["School"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["School"]["prevQuery"]);
+      } else if (
+        prevQueries["School"]["prevFilters"].length < filters["School"].length
+      ) {
+        // this means that you added a query
+
+        progLangOR = await singleQueryFunction(req.body.newFilter["School"]);
+
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["School"]["prevQuery"]
+        );
+
+        orHolder.push(newQueryObj);
+
+        prevQueries["School"]["prevQuery"] = newQueryObj;
+        prevQueries["School"]["prevFilters"].push(
+          req.body.newFilter["School"][0]
+        );
+      } else {
+        const initialSchool = filters["School"];
+        // Now OR the arrays inside proLangOR
+        schoolOR = await singleQueryFunction(initialSchool);
+        schoolFinalOR = schoolOR[0];
+        schoolOR.forEach((eachArray) => {
+          schoolFinalOR = orFilter(eachArray, schoolFinalOR);
+        });
+
+        prevQueries["School"]["prevFilters"] = filters["School"];
+        prevQueries["School"]["prevQuery"] = schoolFinalOR;
+
+        orHolder.push(schoolFinalOR);
+      }
+    } else {
+      prevQueries["School"]["prevFilters"] = [];
+      prevQueries["School"]["prevQuery"] = [];
+    }
+
+    if (filters["Operating Systems"].length !== 0) {
+      if (
+        prevQueries["Operating Systems"]["prevFilters"].length ===
+        filters["Operating Systems"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["Operating Systems"]["prevQuery"]);
+      } else if (
+        prevQueries["Operating Systems"]["prevFilters"].length <
+        filters["Operating Systems"].length
+      ) {
+        // this means that you added a query
+
+        progLangOR = await singleQueryFunction(
+          req.body.newFilter["Operating Systems"]
+        );
+
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["Operating Systems"]["prevQuery"]
+        );
+
+        orHolder.push(newQueryObj);
+
+        prevQueries["Operating Systems"]["prevQuery"] = newQueryObj;
+        prevQueries["Operating Systems"]["prevFilters"].push(
+          req.body.newFilter["Operating Systems"][0]
+        );
+      } else {
+        const initialOP = filters["Operating Systems"];
+        // Now OR the arrays inside proLangOR
+        opOR = await singleQueryFunction(initialOP);
+        opFinalOR = opOR[0];
+        opOR.forEach((eachArray) => {
+          opFinalOR = orFilter(eachArray, opFinalOR);
+        });
+        prevQueries["Operating Systems"]["prevFilters"] =
+          filters["Operating Systems"];
+        prevQueries["Operating Systems"]["prevQuery"] = opFinalOR;
+
+        orHolder.push(opFinalOR);
+      }
+    } else {
+      prevQueries["Operating Systems"]["prevFilters"] = [];
+      prevQueries["Operating Systems"]["prevQuery"] = [];
+    }
+
+    if (filters["Events"].length !== 0) {
+      if (
+        prevQueries["Events"]["prevFilters"].length === filters["Events"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["Events"]["prevQuery"]);
+      } else if (
+        prevQueries["Events"]["prevFilters"].length < filters["Events"].length
+      ) {
+        // this means that you added a query
+
+        progLangOR = await singleQueryFunction(req.body.newFilter["Events"]);
+
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["Events"]["prevQuery"]
+        );
+
+        orHolder.push(newQueryObj);
+
+        prevQueries["Events"]["prevQuery"] = newQueryObj;
+        prevQueries["Events"]["prevFilters"].push(
+          req.body.newFilter["Events"][0]
+        );
+      } else {
+        const initialEvents = filters["Events"];
+        // Now OR the arrays inside proLangOR
+        eventsOR = await singleQueryFunction(initialEvents);
+        eventsFinalOR = eventsOR[0];
+        eventsOR.forEach((eachArray) => {
+          eventsFinalOR = orFilter(eachArray, eventsFinalOR);
+        });
+
+        prevQueries["Events"]["prevFilters"] = filters["Events"];
+        prevQueries["Events"]["prevQuery"] = eventsFinalOR;
+
+        orHolder.push(eventsFinalOR);
+      }
+    } else {
+      prevQueries["Events"]["prevFilters"] = [];
+      prevQueries["Events"]["prevQuery"] = [];
+    }
+
+    if (filters["Graduation Year"].length !== 0) {
+      if (
+        prevQueries["Graduation Year"]["prevFilters"].length ===
+        filters["Graduation Year"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["Graduation Year"]["prevQuery"]);
+      } else if (
+        prevQueries["Graduation Year"]["prevFilters"].length <
+        filters["Graduation Year"].length
+      ) {
+        // this means that you added a query
+
+        progLangOR = await singleQueryFunction(
+          req.body.newFilter["Graduation Year"]
+        );
+
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["Graduation Year"]["prevQuery"]
+        );
+
+        orHolder.push(newQueryObj);
+
+        prevQueries["Graduation Year"]["prevQuery"] = newQueryObj;
+        prevQueries["Graduation Year"]["prevFilters"].push(
+          req.body.newFilter["Graduation Year"][0]
+        );
+      } else {
+        const initialGrad = filters["Graduation Year"];
+        // Now OR the arrays inside proLangOR
+        gradOR = await singleQueryFunction(initialGrad);
+        gradFinalOR = gradOR[0];
+        gradOR.forEach((eachArray) => {
+          gradFinalOR = orFilter(eachArray, gradFinalOR);
+        });
+
+        prevQueries["Graduation Year"]["prevFilters"] =
+          filters["Graduation Year"];
+        prevQueries["Graduation Year"]["prevQuery"] = gradFinalOR;
+
+        orHolder.push(gradFinalOR);
+      }
+    } else {
+      prevQueries["Graduation Year"]["prevFilters"] = [];
+      prevQueries["Graduation Year"]["prevQuery"] = [];
+    }
+
+    if (filters["Primary Major"].length !== 0) {
+      if (
+        prevQueries["Primary Major"]["prevFilters"].length ===
+        filters["Primary Major"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["Primary Major"]["prevQuery"]);
+      } else if (
+        prevQueries["Primary Major"]["prevFilters"].length <
+        filters["Primary Major"].length
+      ) {
+        // this means that you added a query
+
+        progLangOR = await singleQueryFunction(
+          req.body.newFilter["Primary Major"]
+        );
+
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["Primary Major"]["prevQuery"]
+        );
+
+        orHolder.push(newQueryObj);
+
+        prevQueries["Primary Major"]["prevQuery"] = newQueryObj;
+        prevQueries["Primary Major"]["prevFilters"].push(
+          req.body.newFilter["Primary Major"][0]
+        );
+      } else {
+        const initialPrimary = filters["Primary Major"];
+        // Now OR the arrays inside proLangOR
+        primMajorOR = await singleQueryFunction(initialPrimary);
+        primMajorFinalOR = primMajorOR[0];
+        primMajorOR.forEach((eachArray) => {
+          primMajorFinalOR = orFilter(eachArray, primMajorFinalOR);
+        });
+
+        prevQueries["Primary Major"]["prevFilters"] = filters["Primary Major"];
+        prevQueries["Primary Major"]["prevQuery"] = primMajorFinalOR;
+
+        orHolder.push(primMajorFinalOR);
+      }
+    } else {
+      prevQueries["Primary Major"]["prevFilters"] = [];
+      prevQueries["Primary Major"]["prevQuery"] = [];
+    }
+
+    if (filters["Secondary Major"].length !== 0) {
+      if (
+        prevQueries["Secondary Major"]["prevFilters"].length ===
+        filters["Secondary Major"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["Secondary Major"]["prevQuery"]);
+      } else if (
+        prevQueries["Secondary Major"]["prevFilters"].length <
+        filters["Secondary Major"].length
+      ) {
+        // this means that you added a query
+
+        progLangOR = await singleQueryFunction(
+          req.body.newFilter["Secondary Major"]
+        );
+
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["Secondary Major"]["prevQuery"]
+        );
+
+        orHolder.push(newQueryObj);
+
+        prevQueries["Secondary Major"]["prevQuery"] = newQueryObj;
+        prevQueries["Secondary Major"]["prevFilters"].push(
+          req.body.newFilter["Secondary Major"][0]
+        );
+      } else {
+        const initialSecondary = filters["Secondary Major"];
+        // Now OR the arrays inside proLangOR
+        secMajorOR = await singleQueryFunction(initialSecondary);
+        secMajorFinalOR = secMajorOR[0];
+        secMajorOR.forEach((eachArray) => {
+          secMajorFinalOR = orFilter(eachArray, secMajorFinalOR);
+        });
+
+        prevQueries["Secondary Major"]["prevFilters"] =
+          filters["Secondary Major"];
+        prevQueries["Secondary Major"]["prevQuery"] = secMajorFinalOR;
+
+        orHolder.push(secMajorFinalOR);
+      }
+    } else {
+      prevQueries["Secondary Major"]["prevFilters"] = [];
+      prevQueries["Secondary Major"]["prevQuery"] = [];
+    }
+
+    if (filters["Minors"].length !== 0) {
+      if (
+        prevQueries["Minors"]["prevFilters"].length === filters["Minors"].length
+      ) {
+        // The query hasn't changed so return the prev
+        orHolder.push(prevQueries["Minors"]["prevQuery"]);
+      } else if (
+        prevQueries["Minors"]["prevFilters"].length < filters["Minors"].length
+      ) {
+        // this means that you added a query
+
+        progLangOR = await singleQueryFunction(req.body.newFilter["Minors"]);
+
+        const newQueryObj = orFilter(
+          progLangOR[0],
+          prevQueries["Minors"]["prevQuery"]
+        );
+
+        orHolder.push(newQueryObj);
+
+        prevQueries["Minors"]["prevQuery"] = newQueryObj;
+        prevQueries["Minors"]["prevFilters"].push(
+          req.body.newFilter["Minors"][0]
+        );
+      } else {
+        const initialMinors = filters["Minors"];
+        // Now OR the arrays inside proLangOR
+        minorsOR = await singleQueryFunction(initialMinors);
+        minorsFinalOR = minorsOR[0];
+        minorsOR.forEach((eachArray) => {
+          minorsFinalOR = orFilter(eachArray, minorsFinalOR);
+        });
+
+        prevQueries["Minors"]["prevFilters"] = filters["Minors"];
+        prevQueries["Minors"]["prevQuery"] = minorsFinalOR;
+
+        orHolder.push(minorsFinalOR);
+      }
+    } else {
+      prevQueries["Minors"]["prevFilters"] = [];
+      prevQueries["Minors"]["prevQuery"] = [];
+    }
+
+    // ANDs sub groups
+    andFinal = requiredResumeAccessArrayFinalOR;
+
+    orHolder.forEach((eachArray) => {
+      andFinal = intersect(eachArray, andFinal);
     });
 
-    storingArray = await Promise.all(promiseArray);
+    // Sorts by first name
+    andFinal.sort((student1, student2) =>
+      student1["First Name"].localeCompare(student2["First Name"])
+    );
 
-    let finalQueryArray = [];
-    storingArray.forEach((data) => {
-      const docs = data.docs.map((doc) => doc.data());
-      finalQueryArray.push(docs);
+    res.send({
+      students: andFinal,
+      queries: { "Active Queries": prevQueries },
     });
-
-    return finalQueryArray;
-  };
-
-  if (filters["Programming Languages"].length !== 0) {
-    const initialProgramming = filters["Programming Languages"];
-    // Now OR the arrays inside proLangOR
-    progLangOR = await singleQueryFunction(initialProgramming);
-    proLangFinalOR = progLangOR[0];
-    progLangOR.forEach((eachArray) => {
-      proLangFinalOR = orFilter(eachArray, proLangFinalOR);
-    });
-    orHolder.push(proLangFinalOR);
+  } else {
+    res.status(401).send();
   }
+});
 
-  if (filters["Frameworks and Tools"].length !== 0) {
-    const initialFrames = filters["Frameworks and Tools"];
-    // Now OR the arrays inside proLangOR
-    frameOR = await singleQueryFunction(initialFrames);
-    frameFinalOR = frameOR[0];
-    frameOR.forEach((eachArray) => {
-      frameFinalOR = orFilter(eachArray, frameFinalOR);
-    });
-    orHolder.push(frameFinalOR);
-  }
+app.post("/resumeAccessStudents", async (req, res) => {
+  return cors()(req, res, async () => {
+    const email = req.body.currentRecruiterEmail;
+    const claims = (await auth().getUserByEmail(email)).customClaims;
 
-  if (filters["Database Systems"].length !== 0) {
-    const initialDB = filters["Database Systems"];
-    // Now OR the arrays inside proLangOR
-    dbOR = await singleQueryFunction(initialDB);
-    dbFinalOR = dbOR[0];
-    dbOR.forEach((eachArray) => {
-      dbFinalOR = orFilter(eachArray, dbFinalOR);
-    });
-    orHolder.push(dbFinalOR);
-  }
+    if (claims.recruiter || claims.admin) {
+      let requiredResumeAccessArrayOR = [];
+      let requiredResumeAccessArrayFinalOR = [];
+      const data = await firestore
+        .collection("students")
+        .where("School", "==", "UNC Chapel Hill")
+        .where("Hide Resume", "==", false)
+        .get();
+      const uncStudentsArray = data.docs.map((doc) => doc.data());
 
-  if (filters["School"].length !== 0) {
-    const initialSchool = filters["School"];
-    // Now OR the arrays inside proLangOR
-    schoolOR = await singleQueryFunction(initialSchool);
-    schoolFinalOR = schoolOR[0];
-    schoolOR.forEach((eachArray) => {
-      schoolFinalOR = orFilter(eachArray, schoolFinalOR);
-    });
-    orHolder.push(schoolFinalOR);
-  }
+      const singleQueryFunction = async (arrayName) => {
+        let storingArray = [];
+        let promiseArray = [];
 
-  if (filters["Operating Systems"].length !== 0) {
-    const initialOP = filters["Operating Systems"];
-    // Now OR the arrays inside proLangOR
-    opOR = await singleQueryFunction(initialOP);
-    opFinalOR = opOR[0];
-    opOR.forEach((eachArray) => {
-      opFinalOR = orFilter(eachArray, opFinalOR);
-    });
-    orHolder.push(opFinalOR);
-  }
+        const startingQuery = firestore.collection("students");
+        arrayName.forEach((eachQueryOBJ) => {
+          const currentQuery = startingQuery
+            .where(eachQueryOBJ.name, "==", eachQueryOBJ.value)
+            .where("Hide Resume", "==", false);
+          const data = currentQuery.get();
+          promiseArray.push(data);
+        });
 
-  if (filters["Events"].length !== 0) {
-    const initialEvents = filters["Events"];
-    // Now OR the arrays inside proLangOR
-    eventsOR = await singleQueryFunction(initialEvents);
-    eventsFinalOR = eventsOR[0];
-    eventsOR.forEach((eachArray) => {
-      eventsFinalOR = orFilter(eachArray, eventsFinalOR);
-    });
-    orHolder.push(eventsFinalOR);
-  }
+        storingArray = await Promise.all(promiseArray);
 
-  if (filters["Graduation Year"].length !== 0) {
-    const initialGrad = filters["Graduation Year"];
-    // Now OR the arrays inside proLangOR
-    gradOR = await singleQueryFunction(initialGrad);
-    gradFinalOR = gradOR[0];
-    gradOR.forEach((eachArray) => {
-      gradFinalOR = orFilter(eachArray, gradFinalOR);
-    });
-    orHolder.push(gradFinalOR);
-  }
+        let finalQueryArray = [];
+        storingArray.forEach((data) => {
+          const docs = data.docs.map((doc) => doc.data());
+          finalQueryArray.push(docs);
+        });
+        return finalQueryArray;
+      };
 
-  if (filters["Primary Major"].length !== 0) {
-    const initialPrimary = filters["Primary Major"];
-    // Now OR the arrays inside proLangOR
-    primMajorOR = await singleQueryFunction(initialPrimary);
-    primMajorFinalOR = primMajorOR[0];
-    primMajorOR.forEach((eachArray) => {
-      primMajorFinalOR = orFilter(eachArray, primMajorFinalOR);
-    });
-    orHolder.push(primMajorFinalOR);
-  }
+      const orFilter = (arrA, arrB) => {
+        let tempArray = [];
 
-  if (filters["Secondary Major"].length !== 0) {
-    const initialSecondary = filters["Secondary Major"];
-    // Now OR the arrays inside proLangOR
-    secMajorOR = await singleQueryFunction(initialSecondary);
-    secMajorFinalOR = secMajorOR[0];
-    secMajorOR.forEach((eachArray) => {
-      secMajorFinalOR = orFilter(eachArray, secMajorFinalOR);
-    });
-    orHolder.push(secMajorFinalOR);
-  }
+        let setForLookups = new Set();
 
-  if (filters["Minors"].length !== 0) {
-    const initialMinors = filters["Minors"];
-    // Now OR the arrays inside proLangOR
-    minorsOR = await singleQueryFunction(initialMinors);
-    minorsFinalOR = minorsOR[0];
-    minorsOR.forEach((eachArray) => {
-      minorsFinalOR = orFilter(eachArray, minorsFinalOR);
-    });
-    orHolder.push(minorsFinalOR);
-  }
+        // Student UID list for lookups
+        for (const eachOBJ of arrA) {
+          setForLookups.add(eachOBJ.UID);
+          tempArray.push(eachOBJ);
+        }
 
-  // const intersect = (arrA, arrB) => {
-  //   return arrA.filter((x) => x.uid === arrB);
-  // };
+        for (const eachOBJ of arrB) {
+          if (!setForLookups.has(eachOBJ.UID)) {
+            tempArray.push(eachOBJ);
+          }
+        }
 
-  // list1.filter(a => list2.some(b => a.userId === b.userId));
+        return tempArray;
+      };
 
-  //console.log(orHolder);
+      // Creates the resume access array of students
+      // ORs UNC students and recruiter's resume access
+      requiredResumeAccessArrayFinalOR = uncStudentsArray;
+      if (req.body.resumeAccess.length !== 0) {
+        requiredResumeAccessArrayOR = await singleQueryFunction(
+          req.body.resumeAccess
+        );
+        requiredResumeAccessArrayOR.forEach((eachArray) => {
+          requiredResumeAccessArrayFinalOR = orFilter(
+            eachArray,
+            requiredResumeAccessArrayFinalOR
+          );
+        });
+      }
 
-  const intersect = (arrA, arrB) => {
-    return arrA.filter((objA) => arrB.some((objB) => objA.UID === objB.UID));
-  };
-
-  // ANDs sub groups
-  andFinal = orHolder[0];
-  orHolder.forEach((eachArray) => {
-    andFinal = intersect(eachArray, andFinal);
-    //console.log(andFinal);
+      // .catch((err) => res.status(500).send(err));
+      res
+        .status(201)
+        .send(
+          requiredResumeAccessArrayFinalOR.sort((student1, student2) =>
+            student1["First Name"].localeCompare(student2["First Name"])
+          )
+        );
+    } else {
+      res.status(401).send();
+    }
   });
-  res.send(andFinal);
 });
 
 app.put("/checkboxV2", async (req, res) => {
-  return cors()(req, res, async () => {
-    const valuePlaceHolder = req.body.valueToSend;
-    const updatedOBJ = req.body.update;
+  const email = req.body.currentStudentEmail;
+  const claims = (await auth().getUserByEmail(email)).customClaims;
 
-    // await firestore
-    //   .collection("students")
-    //   .doc(req.body.uid)
-    //   .set(
-    //     {
-    //       [valuePlaceHolder]: updatedOBJ,
-    //     },
-    //     { merge: true }
-    //   );
+  if (claims.student || claims.admin) {
+    return cors()(req, res, async () => {
+      const valuePlaceHolder = req.body.valueToSend;
+      const updatedOBJ = req.body.update;
 
-    // Replaces whole field with the updated info
-    // rather than update specific fields
-    await firestore
-      .collection("students")
-      .doc(req.body.uid)
-      .update({
-        [valuePlaceHolder]: updatedOBJ,
-      })
-      .catch((err) => res.status(500).send(err));
-    res.status(201).send();
-  });
+      // Replaces whole field with the updated info
+      // rather than update specific fields
+      await firestore
+        .collection("students")
+        .doc(req.body.uid)
+        .update({
+          [valuePlaceHolder]: updatedOBJ,
+        })
+        .catch((err) => res.status(500).send(err));
+      res.status(201).send();
+    });
+  } else {
+    res.status(401).send();
+  }
 });
 
 // adds a new list
 app.put("/newList", async (req, res) => {
   // takes in uid and list name
-  await firestore
-    .collection("recruiters")
-    .doc(req.body.recruiterUID)
-    .update({
-      [`Lists.${req.body.nameOfList}`]: [],
-    })
-    .catch((err) => res.status(500).send(err));
-  res.status(201).send();
+  const email = req.body.currentRecruiterEmail;
+  const claims = (await auth().getUserByEmail(email)).customClaims;
+  //.catch((err) => res.status(404).send(err)).customClaims;
+
+  if (claims.recruiter || claims.admin) {
+    await firestore
+      .collection("recruiters")
+      .doc(req.body.recruiterUID)
+      .update({
+        [`Lists.${req.body.nameOfList}`]: [],
+      })
+      .catch((err) => res.status(500).send(err));
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
 });
 
 // removes a list
 app.put("/removeList", async (req, res) => {
-  await firestore
-    .collection("recruiters")
-    .doc(req.body.recruiterUID)
-    .update({
-      [`Lists.${req.body.nameOfList}`]: admin.firestore.FieldValue.delete(),
-    })
-    .catch((err) => res.status(500).send(err));
-  res.status(201).send();
+  const email = req.body.currentRecruiterEmail;
+  const claims = (await auth().getUserByEmail(email)).customClaims;
+  //.catch((err) => res.status(404).send(err)).customClaims;
+
+  if (claims.recruiter || claims.admin) {
+    await firestore
+      .collection("recruiters")
+      .doc(req.body.recruiterUID)
+      .update({
+        [`Lists.${req.body.nameOfList}`]: admin.firestore.FieldValue.delete(),
+      })
+      .catch((err) => res.status(500).send(err));
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
 });
 
 // adds a student to a recruiter's list
 app.put("/addStudent", async (req, res) => {
   // input: nameOfList, recruiterUID, student
-  await firestore
-    .collection("recruiters")
-    .doc(req.body.recruiterUID)
-    .update({
-      [`Lists.${req.body.nameOfList}`]: admin.firestore.FieldValue.arrayUnion(
-        req.body.student
-      ),
-    })
-    .catch((err) => res.status(500).send(err));
-  res.status(201).send();
+  const email = req.body.currentRecruiterEmail;
+  const claims = (await auth().getUserByEmail(email)).customClaims;
+  //.catch((err) => res.status(404).send(err)).customClaims;
+
+  if (claims.recruiter || claims.admin) {
+    await firestore
+      .collection("recruiters")
+      .doc(req.body.recruiterUID)
+      .update({
+        [`Lists.${req.body.nameOfList}`]: admin.firestore.FieldValue.arrayUnion(
+          req.body.student
+        ),
+      })
+      .catch((err) => res.status(500).send(err));
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
 });
 
 // endpoint for recruiters to remove students from lists
 app.put("/deleteStudent", async (req, res) => {
   // input: nameOfList, recruiterUID, student
-  await firestore
-    .collection("recruiters")
-    .doc(req.body.recruiterUID)
-    .update({
-      [`Lists.${req.body.nameOfList}`]: admin.firestore.FieldValue.arrayRemove(
-        req.body.student
-      ),
-    })
-    .catch((err) => res.status(500).send(err));
-  res.status(201).send();
+
+  const email = req.body.currentRecruiterEmail;
+  const claims = (await auth().getUserByEmail(email)).customClaims;
+  //.catch((err) => res.status(404).send(err)).customClaims;
+
+  if (claims.recruiter || claims.admin) {
+    await firestore
+      .collection("recruiters")
+      .doc(req.body.recruiterUID)
+      .update({
+        [`Lists.${req.body.nameOfList}`]: admin.firestore.FieldValue.arrayRemove(
+          req.body.student
+        ),
+      })
+      .catch((err) => res.status(500).send(err));
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
+});
+
+//delete event code map field
+app.put("/removeEventCodeField", async (req, res) => {
+  const adminEmail = req.body.currentAdminEmail;
+  const adminUser = (await auth().getUserByEmail(adminEmail)).customClaims;
+
+  if (adminUser.admin) {
+    await firestore
+      .collection("Events")
+      .doc("eventCodes")
+      .update({
+        [`codes.${req.body.eCode}`]: admin.firestore.FieldValue.delete(),
+      })
+      .catch((err) => res.status(500).send(err));
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
+});
+
+//endpoint for admin to remove students from the db
+app.put("/removeStudentFromDB", async (req, res) => {
+  const adminEmail = req.body.currentAdminEmail;
+  const adminUser = (await auth().getUserByEmail(adminEmail)).customClaims;
+
+  if (adminUser.admin) {
+    await firestore
+      .collection("students")
+      .doc(req.body.studentUID)
+      .delete()
+      .catch((err) => res.status(500).send(err));
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
+});
+
+//endpoint for admin to remove recruiter from the db
+app.put("/removeRecruiterFromDB", async (req, res) => {
+  const adminEmail = req.body.currentAdminEmail;
+  const adminUser = (await auth().getUserByEmail(adminEmail)).customClaims;
+
+  if (adminUser.admin) {
+    await firestore
+      .collection("recruiters")
+      .doc(req.body.recruiterUID)
+      .delete()
+      .catch((err) => res.status(500).send(err));
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
+});
+
+// Allows recruiters to add notes to a students profile
+app.put("/addNotes", async (req, res) => {
+  const email = req.body.currentRecruiterEmail;
+  const claims = (await auth().getUserByEmail(email)).customClaims;
+
+  if (claims.recruiter || claims.admin) {
+    await firestore
+      .collection("recruiters")
+      .doc(req.body.recruiterUID)
+      .update({
+        [`Notes.${req.body.studentID}`]: req.body.currentNotes,
+      })
+      .catch((err) => res.status(500).send(err));
+    res.status(201).send();
+  } else {
+    res.status(401).send();
+  }
 });
 
 // Base API endpoint

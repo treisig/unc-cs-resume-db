@@ -2,11 +2,11 @@ import React, { useState, useEffect } from "react";
 
 import ResumeView from "./ResumeView";
 import { useTransition, animated } from "react-spring";
-import "../../Static/RecruiterView.css";
+import "./recruiterViewCss/RecruiterView.css";
 import CandidatesList from "../../Static/Candidates.json";
 import Spinner from "react-bootstrap/Spinner";
 import RecruiterViewColumns from "./RecruiterViewColumns";
-import { Col, Row, Container } from "react-bootstrap";
+import { Col, Row, Container, Modal } from "react-bootstrap";
 import { withFirebase } from "../Firebase";
 import axios from "axios";
 
@@ -15,10 +15,15 @@ function RecruiterView({ Firebase, ...props }) {
   const [recruiter, setRecruiter] = useState(null);
   const [candidate, setCandidate] = useState(CandidatesList.CandidatesList[0]);
   const [filters, setFilters] = useState(null);
+  const [queries, setQueries] = useState(null);
+  const [currentResumeAccess, setResumeAccess] = useState(null);
   function toggleResumeView(info) {
     setResumeView(!resumeView);
     setCandidate(info);
   }
+
+  //state holding a recruiters search for a student by name
+  const [currentStudentSearch, setCurrentStudentSearch] = useState("");
 
   async function getListArrays(collection, doc) {
     const data = await Firebase.db.collection(collection).doc(doc).get();
@@ -47,6 +52,13 @@ function RecruiterView({ Firebase, ...props }) {
 
     const eventHolder = await getListArrays("Events", "eventsList");
 
+    const recruiterResumeAccessData = await Firebase.db
+      .collection("recruiters")
+      .doc(Firebase.auth.currentUser.uid)
+      .get();
+
+    const recruiterResumeAccess = recruiterResumeAccessData.data();
+
     setFilters({
       "Graduation Year": gradHolder.gradYearList,
       "Programming Languages": languageHolder.progLanguages,
@@ -57,7 +69,8 @@ function RecruiterView({ Firebase, ...props }) {
       Minors: majorsHolder.majorsList,
       "Frameworks and Tools": frameworksHolder.frameworksAndTools,
       School: schoolsHolder.schoolsList,
-      Events: eventHolder.eventsList,
+      // Events: eventHolder.eventsList,
+      Events: recruiterResumeAccess["Resume Access"],
       "Active Filters": {
         "Programming Languages": [],
         "Frameworks and Tools": [],
@@ -71,10 +84,27 @@ function RecruiterView({ Firebase, ...props }) {
         "Graduation Year": [],
       },
     });
+
+    // Gets the prev query data to make queries more efficient
+    setQueries({
+      "Active Queries": {
+        "Programming Languages": { prevFilters: [], prevQuery: [] },
+        "Frameworks and Tools": { prevFilters: [], prevQuery: [] },
+        School: { prevFilters: [], prevQuery: [] },
+        Events: { prevFilters: [], prevQuery: [] },
+        "Primary Major": { prevFilters: [], prevQuery: [] },
+        "Secondary Major": { prevFilters: [], prevQuery: [] },
+        Minors: { prevFilters: [], prevQuery: [] },
+        "Operating Systems": { prevFilters: [], prevQuery: [] },
+        "Database Systems": { prevFilters: [], prevQuery: [] },
+        "Graduation Year": { prevFilters: [], prevQuery: [] },
+      },
+    });
   }
 
   async function addFilter(filterName) {
     let filterArr = filters["Active Filters"];
+    const queryObj = queries["Active Queries"];
     let specificFilter = "";
 
     if (filterName.name.includes(".")) {
@@ -84,6 +114,7 @@ function RecruiterView({ Firebase, ...props }) {
       specificFilter = filterName.name;
     }
 
+    // Adds filter to the correct list
     filterArr[specificFilter].push(filterName);
     setFilters((prev) => ({
       ...prev,
@@ -91,13 +122,26 @@ function RecruiterView({ Firebase, ...props }) {
     }));
     const preData = await axios.post(
       "https://us-central1-unc-cs-resume-database-af14e.cloudfunctions.net/api/queryV3",
-      { filtersForQuery: filterArr, empty: false }
+      {
+        filtersForQuery: filterArr,
+        empty: false,
+        resumeAccess: currentResumeAccess,
+        currentRecruiterEmail: Firebase.auth.currentUser.email,
+        currentQueries: queryObj,
+        newFilter: { [specificFilter]: [filterName] },
+      }
     );
-    const data = preData.data;
+
+    // References student part of the data
+    const data = preData.data.students;
     setCards(data);
+    // References query part of the data
+    const queryData = preData.data.queries;
+    setQueries(queryData);
   }
   async function removeFilter(filterName) {
     let filterArr = filters["Active Filters"];
+    const queryObj = queries["Active Queries"];
 
     let specificFilter = "";
 
@@ -135,13 +179,21 @@ function RecruiterView({ Firebase, ...props }) {
 
     const preData = await axios.post(
       "https://us-central1-unc-cs-resume-database-af14e.cloudfunctions.net/api/queryV3",
-      { filtersForQuery: filterArr, empty: isEmpty }
+      {
+        filtersForQuery: filterArr,
+        empty: isEmpty,
+        resumeAccess: currentResumeAccess,
+        currentRecruiterEmail: Firebase.auth.currentUser.email,
+        currentQueries: queryObj,
+      }
     );
-
-    const data = preData.data;
+    const data = preData.data.students;
     setCards(data);
+    // References query part of the data
+    const queryData = preData.data.queries;
+    setQueries(queryData);
   }
-
+  // Checks the list of current filters for a filter passed from the Filter Item component
   function isCurrentFilter(objToAdd) {
     let exitCondition = false;
     const filterArr = filters["Active Filters"];
@@ -154,88 +206,100 @@ function RecruiterView({ Firebase, ...props }) {
       });
     });
     return exitCondition;
-
-    // if (filters["Active Filters"] !== undefined) {
-    //   Object.keys(filterArr).forEach((keyName) => {
-    //     filterArr[keyName].forEach((item) => {
-    //       if (item.name === objToAdd.name && item.value === objToAdd.value) {
-    //         return true;
-    //       }
-    //     });
-    //   });
-
-    //   // let newArr = filters["Active Filters"].filter((item) => {
-    //   //   // console.log(item.name === objToAdd.name);
-    //   //   // console.log(item.value === objToAdd.value);
-    //   //   return item.name === objToAdd.name && item.value === objToAdd.value;
-    //   // });
-    //   //console.log(newArr);
-    //   return false;
-    // } else {
-    //   return false;
-    // }
   }
-
+  // The current state of cards displayed in the Candidates section
   const [cards, setCards] = useState(null);
+
+  // gets the newest recruiter object stored in firebase
+  // This function is called to display changes made in MyLists
   async function updateRecruiter() {
     const data = await Firebase.getRecruiterInfo(Firebase.auth.currentUser.uid);
     setRecruiter(data);
   }
-
+  // Makes API calls to get all the current cards and the recruiter object from the DB
   useEffect(() => {
     async function fetchUsers() {
-      const data = await Firebase.getAllStudents();
+      //const data = await Firebase.getAllStudents();
+
+      if (currentResumeAccess === null) {
+        const recruiterResumeAccessData = await Firebase.db
+          .collection("recruiters")
+          .doc(Firebase.auth.currentUser.uid)
+          .get();
+
+        const recruiterResumeAccess = recruiterResumeAccessData.data();
+
+        let recruiterResumeAccessObjArray = [];
+
+        recruiterResumeAccess["Resume Access"].forEach((eachEvent) => {
+          recruiterResumeAccessObjArray.push({
+            name: `Events.${eachEvent}`,
+            value: true,
+          });
+        });
+
+        const data = await axios.post(
+          "https://us-central1-unc-cs-resume-database-af14e.cloudfunctions.net/api/resumeAccessStudents",
+          {
+            resumeAccess: recruiterResumeAccessObjArray,
+            currentRecruiterEmail: Firebase.auth.currentUser.email,
+          }
+        );
+        setCards(data.data);
+        setResumeAccess(data.data);
+      }
       const recruiter = await Firebase.getRecruiterInfo(
         Firebase.auth.currentUser.uid
       );
       setRecruiter(recruiter);
-      setCards(data);
     }
     fetchUsers();
     collectData();
   }, []);
 
-  const transitions = useTransition(resumeView, null, {
-    from: { position: "absolute", opacity: 0 },
-    enter: { opacity: 1 },
-    leave: { opacity: 0 },
-  });
-
-  if (filters !== null && recruiter !== null) {
-    return transitions.map(({ item, key, props }) =>
-      item ? (
-        <animated.div style={props}>
-          <RecruiterViewColumns
-            addFilter={(filterName) => addFilter(filterName)}
-            isCurrentFilter={(objToAdd) => isCurrentFilter(objToAdd)}
-            removeFilter={(filterName) => removeFilter(filterName)}
-            filters={filters}
-            updateRecruiter={() => updateRecruiter()}
-            cards={cards}
-            recruiterObj={recruiter}
+  if (filters !== null && recruiter !== null && cards !== null) {
+    return (
+      <div>
+        <Modal
+          className="recruiterModalBackGround"
+          show={!resumeView}
+          dialogClassName="recruiterModal"
+        >
+          <ResumeView
+            candidate={candidate}
             toggleResumeView={(candidate) => toggleResumeView(candidate)}
+            recruiterInfo={recruiter[0]}
+            updateRecruiter={() => updateRecruiter()}
           />
-        </animated.div>
-      ) : (
-        <animated.div style={props}>
-          <Container
-            fluid
-            className="p-0 vw-100 recruiterViewContainer"
-            style={{ backgroundColor: "#13294B" }}
-          >
-            <Row>
-              <Col className="d-flex justify-content-center resumeViewContainer">
-                <ResumeView
-                  candidate={candidate}
-                  toggleResumeView={(candidate) => toggleResumeView(candidate)}
-                />
-              </Col>
-            </Row>
-          </Container>
-        </animated.div>
-      )
-    );
+        </Modal >
+        <RecruiterViewColumns
+          addFilter={(filterName) => addFilter(filterName)}
+          isCurrentFilter={(objToAdd) => isCurrentFilter(objToAdd)}
+          removeFilter={(filterName) => removeFilter(filterName)}
+          filters={filters}
+          updateRecruiter={() => updateRecruiter()}
+          cards={cards}
+          recruiterObj={recruiter}
+          toggleResumeView={(candidate) => toggleResumeView(candidate)}
+          setCurrentStudentSearch={(name) => setCurrentStudentSearch(name)}
+          currentStudentSearch={currentStudentSearch}
+        />
+      </div>
+
+      // <Container
+      //   fluid
+      //   className="p-0 vw-100 recruiterViewContainer"
+      //   style={{ backgroundColor: "#13294B" }}
+      // >
+      //   <Row>
+      //     <Col className="d-flex justify-content-center resumeViewContainer">
+
+      //     </Col>
+      //   </Row>
+      // </Container>
+    )
   } else {
+    // loads a spinner if all the api calls are not complete
     return (
       <div className="d-flex justify-content-center recruiterSpinnerDiv">
         <Spinner animation="border" role="status" className="recruiterSpinner">

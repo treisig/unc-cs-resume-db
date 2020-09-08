@@ -5,14 +5,19 @@ import { withFirebase } from "../Firebase";
 
 import axios from "axios";
 
+// This component is responsible for adding a new list to a rectuiters my list section
+// This component is only visible when a recruiter clicks the plus icon next to the MyLists Header
 function MyListsForm({ Firebase, ...props }) {
+  //Sets the initial list name to empty string
   const [listName, setListName] = useState("");
+
   const handleChange = async (evt) => {
     evt.preventDefault();
     // Checks if listName is empty then sends to endpoint
     const objToSend = {
       nameOfList: listName,
       recruiterUID: Firebase.auth.currentUser.uid,
+      currentRecruiterEmail: Firebase.auth.currentUser.email,
     };
     if (listName !== null && listName !== "") {
       await axios.put(

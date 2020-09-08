@@ -16,26 +16,33 @@ class SchoolsCard extends Component {
     super(props);
     this.Firebase = props.Firebase;
     this.state = {
-      eventInput: "",
+      schoolInput: "",
       reqSchoolName: "",
-      collection: "",
-      doc: "",
-      field: "",
       schools: [],
       schoolsRequest: [],
     };
   }
 
-  componentDidMount() {
+  async componentDidMount() {
     this.handleQueryAllData();
   }
 
+  getListArrays = async (collection, doc) => {
+    const data = await this.Firebase.db.collection(collection).doc(doc).get();
+    return data.data();
+  };
   handleQueryAllData = async (e) => {
-    const data = await this.Firebase.getAllSchools().catch((err) =>
-      console.log(err)
+    const schoolsHolder = await this.getListArrays("Schools", "SchoolsList");
+    this.setState({
+      schools: schoolsHolder.schoolsList,
+    });
+    const requestedSchoolsHolder = await this.getListArrays(
+      "Schools",
+      "RequestedSchools"
     );
-    this.setState({ schools: data[1].schoolsList });
-    this.setState({ schoolsRequest: data[0].schoolsList });
+    this.setState({
+      schoolsRequest: requestedSchoolsHolder.schoolsList,
+    });
   };
 
   render() {
@@ -49,7 +56,7 @@ class SchoolsCard extends Component {
               eventKey="schools"
               style={{ backgroundColor: "#E5E5E5", color: "Black" }}
             >
-              <h3 className="recruiter-name">Schools</h3>
+              <h3 className="admin-card-name">Schools</h3>
             </Accordion.Toggle>
             <Accordion.Collapse eventKey="schools">
               <div style={{ color: "Black" }}>
@@ -58,14 +65,10 @@ class SchoolsCard extends Component {
                     <Form.Group controlId="school modification">
                       <Form.Label>Current Schools</Form.Label>
                       <Form.Control
+                        className="admin-input-box"
                         as="select"
                         onChange={(e) =>
-                          this.updateStates(
-                            e.currentTarget.value,
-                            "Schools",
-                            "SchoolsList",
-                            "schoolsList"
-                          )
+                          this.setState({ schoolInput: e.currentTarget.value })
                         }
                       >
                         <option>Select School</option>
@@ -73,73 +76,72 @@ class SchoolsCard extends Component {
                           <option key={eachOption}>{eachOption}</option>
                         ))}
                       </Form.Control>
+                    </Form.Group>
+                    <InputGroup>
                       <FormControl
+                        className="admin-input-box"
                         placeholder="Schools to Add/Remove"
-                        value={this.state.eventInput}
+                        value={this.state.schoolInput}
                         aria-label="Schools to Add/Remove"
                         aria-describedby="basic-addon2"
                         // key={data.UID}
                         key="schools"
                         onChange={(e) =>
-                          this.updateStates(
-                            e.currentTarget.value,
-                            "Schools",
-                            "SchoolsList",
-                            "schoolsList"
-                          )
+                          this.setState({ schoolInput: e.currentTarget.value })
                         }
                       />
-                    </Form.Group>
-                    <InputGroup.Append>
-                      <Button
-                        variant="outline-success"
-                        onClick={this.handleAdd}
-                      >
-                        Add
-                      </Button>
-                      <Button
-                        variant="outline-danger"
-                        // onClick={console.log(this.state.eventInput)}
-                        onClick={this.handleRemove}
-                      >
-                        Remove
-                      </Button>
-                    </InputGroup.Append>
 
-                    <Form.Group controlId="school request modification">
-                      <Form.Label>Requested Schools</Form.Label>
-                      <Form.Control
-                        as="select"
-                        onChange={(e) =>
-                          this.setState({
-                            reqSchoolName: e.currentTarget.value,
-                          })
-                        }
-                      >
-                        <option>Select School</option>
-                        {this.state.schoolsRequest.map((eachOption) => (
-                          <option key={eachOption}>{eachOption}</option>
-                        ))}
-                      </Form.Control>
-                    </Form.Group>
-                    <InputGroup>
                       <InputGroup.Append>
                         <Button
                           variant="outline-success"
-                          //   onClick={this.handleAdd}
-                          onClick={this.handleAddRequest}
+                          onClick={this.handleAdd}
                         >
                           Add
                         </Button>
                         <Button
                           variant="outline-danger"
-                          // onClick={console.log(this.state.eventInput)}
-                          onClick={this.handleRemoveRequest}
+                          onClick={this.handleRemove}
                         >
                           Remove
                         </Button>
                       </InputGroup.Append>
                     </InputGroup>
+
+                    <Form.Group controlId="school request modification">
+                      <Form.Label>Requested Schools</Form.Label>
+                      <InputGroup>
+                        <Form.Control
+                          className="admin-input-box"
+                          as="select"
+                          onChange={(e) =>
+                            this.setState({
+                              reqSchoolName: e.currentTarget.value,
+                            })
+                          }
+                        >
+                          <option>Select School</option>
+                          {this.state.schoolsRequest.map((eachOption) => (
+                            <option key={eachOption}>{eachOption}</option>
+                          ))}
+                        </Form.Control>
+
+                        <InputGroup.Append>
+                          <Button
+                            variant="outline-success"
+                            //   onClick={this.handleAdd}
+                            onClick={this.handleRequestAdd}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            variant="outline-danger"
+                            onClick={this.handleRequestRemove}
+                          >
+                            Remove
+                          </Button>
+                        </InputGroup.Append>
+                      </InputGroup>
+                    </Form.Group>
                   </Form>
                 </Card.Body>
               </div>
@@ -150,54 +152,34 @@ class SchoolsCard extends Component {
     );
   }
 
-  updateStates = (input, coll, docName, field) => {
-    this.setState({ eventInput: input });
-    this.setState({ collection: coll });
-    this.setState({ doc: docName });
-    this.setState({ field: field });
-    // {
-    //   console.log("schools");
-    //   console.log(this.state.schools);
-    //   console.log("schools Request");
-    //   console.log(this.state.schoolsRequest);
-    // }
-  };
-
-  handleAddRequest = async (event) => {
+  handleRequestAdd = async (event) => {
     event.preventDefault();
-    console.log(this.state.reqSchoolName);
+    //adding requested schhol to current schhol list
+    this.state.schools.push(this.state.reqSchoolName);
     await this.Firebase.db
       .collection("Schools")
       .doc("SchoolsList")
       .update({
-        ["schoolsList"]: this.Firebase.firestore.FieldValue.arrayUnion(
-          this.state.reqSchoolName
-        ),
+        ["schoolsList"]: this.state.schools,
       })
       .catch((err) => console.log(err));
+    //removing recently added school from requested schhool list
+    this.handleRequestRemove();
 
-    await this.Firebase.db
-      .collection("Schools")
-      .doc("RequestedSchools")
-      .update({
-        ["schoolsList"]: this.Firebase.firestore.FieldValue.arrayRemove(
-          this.state.reqSchoolName
-        ),
-      })
-      .catch((err) => console.log(err));
     this.handleUpdate();
   };
 
-  handleRemoveRequest = async (event) => {
-    event.preventDefault();
-    console.log(this.state.reqSchoolName);
+  handleRequestRemove = async () => {
+    const index = this.state.schoolsRequest.indexOf(this.state.reqSchoolName);
+    if (index > -1) {
+      this.state.schoolsRequest.splice(index, 1);
+    }
+
     await this.Firebase.db
       .collection("Schools")
       .doc("RequestedSchools")
       .update({
-        ["schoolsList"]: this.Firebase.firestore.FieldValue.arrayRemove(
-          this.state.reqSchoolName
-        ),
+        ["schoolsList"]: this.state.schoolsRequest,
       })
       .catch((err) => console.log(err));
     this.handleUpdate();
@@ -205,30 +187,40 @@ class SchoolsCard extends Component {
 
   handleAdd = async (event) => {
     event.preventDefault();
+    //check if same item exist in the array before adding
+    const index = this.state.schools.indexOf(this.state.schoolInput);
+    if (index > -1) {
+      alert("exists at " + index);
+      return;
+    }
+    this.state.schools.push(this.state.schoolInput);
     await this.Firebase.db
-      .collection(this.state.collection)
-      .doc(this.state.doc)
+      .collection("Schools")
+      .doc("SchoolsList")
       .update({
-        [this.state.field]: this.Firebase.firestore.FieldValue.arrayUnion(
-          this.state.eventInput
-        ),
+        ["schoolsList"]: this.state.schools,
       })
       .catch((err) => console.log(err));
+
     this.handleUpdate();
   };
 
   //Remove resume access
   handleRemove = async (event) => {
     event.preventDefault();
+    const index = this.state.schools.indexOf(this.state.schoolInput);
+    if (index > -1) {
+      this.state.schools.splice(index, 1);
+    }
+
     await this.Firebase.db
-      .collection(this.state.collection)
-      .doc(this.state.doc)
+      .collection("Schools")
+      .doc("SchoolsList")
       .update({
-        [this.state.field]: this.Firebase.firestore.FieldValue.arrayRemove(
-          this.state.eventInput
-        ),
+        ["schoolsList"]: this.state.schools,
       })
       .catch((err) => console.log(err));
+
     this.handleUpdate();
   };
 

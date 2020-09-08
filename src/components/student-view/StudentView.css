@@ -27,9 +27,15 @@
   height: auto;
 }
 
+.minorsCheckboxes {
+  height: 40vh;
+  overflow-y: scroll;
+}
+
 .headersForEachType {
   line-height: 72.5px !important;
   font-size: 30px !important;
+  padding-left: 15px;
 }
 
 .right-panel {
@@ -74,7 +80,7 @@
   margin-right: 20px !important;
 }
 .radioInput {
-  margin-left: 10px !important;
+  margin-left: 15px !important;
   margin-top: 15px !important;
 }
 .currentlySeeking {
@@ -93,7 +99,8 @@
 }
 .multiBtn {
   height: 40px !important;
-  line-height: 30px;
+  max-width: 77.18px !important;
+  line-height: 30px !important;
   padding-bottom: 5px !important;
   padding-top: 5px !important;
   margin-top: 15px !important;

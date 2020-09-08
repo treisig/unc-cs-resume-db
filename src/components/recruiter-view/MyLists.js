@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import "../../Static/MyList.css"
+import "./recruiterViewCss/MyList.css"
 import MyListsDropDownWrapper from "./MyListsDropDownWrapper"
 import MyListsHeader from "./MyListsHeader"
 import ArrowForwardIcon from '@material-ui/icons/ArrowForward';
@@ -8,6 +8,7 @@ import ArrowForwardIcon from '@material-ui/icons/ArrowForward';
 
 
 function MyLists(props) {
+    //outer most component for the MyLists Section
 
 
     let listWrapper = null;
@@ -17,7 +18,7 @@ function MyLists(props) {
     }
 
     return (
-        <div className="myListsBigOlDiv">
+        <div className="myListsContainerDiv">
             <div className="myListsArrowDiv" onClick={() => props.setMyListsToggle()}>
                 <ArrowForwardIcon className="myListsArrowIcon" />
 

@@ -1,10 +1,13 @@
 import React, { Component } from "react";
 import Card from "react-bootstrap/Card";
 import Button from "react-bootstrap/Button";
+import Link from "react-router-dom/Link";
 import "./SideCard.css";
 import { withFirebase } from "../Firebase";
 import SideResumeBox from "./SideResumeBox";
 import PublishIcon from "@material-ui/icons/Publish";
+import SettingsIcon from "@material-ui/icons/Settings";
+import AccountCircleIcon from "@material-ui/icons/AccountCircle";
 
 // 320 by 780
 class SideCard extends Component {
@@ -27,18 +30,24 @@ class SideCard extends Component {
     const { resumePDF } = this.state;
 
     // checks if you have a file url in the database already
-    if (this.props.resURL !== "") {
-      // Delete current file in storage
-      // Send request to delete current file
-      this.Firebase.storage
-        .ref(`resumePDFs/${this.Firebase.auth.currentUser.uid}`)
-        .delete();
-    }
+    // if (this.props.resURL !== "") {
+    //   // Delete current file in storage
+    //   // Send request to delete current file
+    //   this.Firebase.storage
+    //     .ref(`resumePDFs/${this.Firebase.auth.currentUser.uid}`)
+    //     .delete();
+    // }
 
     // reference to the location of where the file should be placed
     const uploadFile = this.Firebase.storage
       .ref(`resumePDFs/${this.Firebase.auth.currentUser.uid}`)
       .put(resumePDF);
+    // .catch(() => {
+    //   alert(
+    //     "Please make sure your Resume is a PDF and your Profile Picture is an image."
+    //   );
+    //   return;
+    // });
 
     // Uploads file to firebase
     // Gets the file url from storage and displays on screen through setting the state.url
@@ -49,6 +58,8 @@ class SideCard extends Component {
       (snapshot) => {},
       (error) => {
         console.log(error);
+        alert("Please make sure that your Resume is a PDF.");
+        return;
       },
       () => {
         this.Firebase.storage
@@ -84,22 +95,28 @@ class SideCard extends Component {
     const { profileImageFile } = this.state;
 
     // checks if you have a file url in the database already
-    if (
-      this.props.profileImgURL !== "" &&
-      this.props.profileImgURL !==
-        "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973461_960_720.png"
-    ) {
-      // Delete current file in storage
-      // Send request to delete current file
-      this.Firebase.storage
-        .ref(`profilePictures/${this.Firebase.auth.currentUser.uid}`)
-        .delete();
-    }
+    // if (
+    //   this.props.profileImgURL !== ""
+    //   // && this.props.profileImgURL !==
+    //   //   "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973461_960_720.png"
+    // ) {
+    //   // Delete current file in storage
+    //   // Send request to delete current file
+    //   this.Firebase.storage
+    //     .ref(`profilePictures/${this.Firebase.auth.currentUser.uid}`)
+    //     .delete();
+    // }
 
     // reference to the location of where the file should be placed
     const uploadFile = this.Firebase.storage
       .ref(`profilePictures/${this.Firebase.auth.currentUser.uid}`)
       .put(profileImageFile);
+    // .catch(() => {
+    //   alert(
+    //     "Please make sure your Resume is a PDF and your Profile Picture is an image."
+    //   );
+    //   return;
+    // });
 
     // Uploads file to firebase
     // Gets the file url from storage and displays on screen through setting the state.url
@@ -110,6 +127,8 @@ class SideCard extends Component {
       (snapshot) => {},
       (error) => {
         console.log(error);
+        alert("Please make sure that your Profile Picture is an image.");
+        return;
       },
       () => {
         this.Firebase.storage
@@ -143,20 +162,39 @@ class SideCard extends Component {
     }
   }
 
-  // now allows pdfs
   render() {
+    const profileIcon =
+      this.state.profileURL === "" ? (
+        <AccountCircleIcon className="SideResumePdfImage" />
+      ) : (
+        <img
+          className="SideResumePdfImage"
+          src={this.state.profileURL}
+          alt=""
+        />
+      );
+
     return (
       <div>
         <Card id="SideCardCard">
           <Card.Header className="SideCardProfileHeader">
             <div className="d-block justify-content-center" id="ProfileDiv">
               <div className="d-flex justify-content-center">
-                <div className="imgDiv">
-                  <img
-                    className="SideResumePdfImage"
-                    src={this.state.profileURL}
-                    alt=""
+                <Link to="/accountSettings">
+                  <SettingsIcon
+                    style={{ color: "white" }}
+                    className="settingsIcon"
+                    fontSize="large"
                   />
+                </Link>
+                <div className="imgDiv">
+                  {profileIcon}
+                  {/* <img
+                    className="SideResumePdfImage"
+                    src={profileIcon}
+                    // src={this.state.profileURL}
+                    alt=""
+                  /> */}
                 </div>
 
                 <div className="nameDiv">
@@ -164,7 +202,7 @@ class SideCard extends Component {
                   <h2 className="nameText"> {this.props.lastName} </h2>
                 </div>
               </div>
-              <div className="emailDiv">{this.props.emailAddress}</div>
+              {/* <div className="emailDiv">{this.props.emailAddress}</div> */}
             </div>
           </Card.Header>
           <Card.Body className="SideCardBody">
@@ -183,7 +221,7 @@ class SideCard extends Component {
             >
               <div>
                 <form>
-                  <div className="form-group">
+                  <div className="form-group m-0">
                     <label>
                       <input
                         type="file"
@@ -191,7 +229,7 @@ class SideCard extends Component {
                         className="form-control-file"
                         id="exampleFormControlFile1"
                         onChange={this.handlePdfChange}
-                        style={{ color: "#000000" }}
+                        style={{ color: "#000000", width: "22vw" }}
                       />
                     </label>
                   </div>
